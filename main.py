@@ -15,13 +15,11 @@ def ask_logic_question(query):
     answer = generate_answer(query, chunks)
     return answer
 
-if __name__ == "__main__":
-    
-    BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
-    # Change this to True if you are running for the first time
-    FIRST_RUN = False 
+def main(query,FIRST_RUN=False):
+    # Change FIRST_RUN to True if you are running for the first time
     
     ollama_utils()
+
     if FIRST_RUN:
         ingestion_pipeline(
           base_path=BASE_DIR, 
@@ -30,6 +28,10 @@ if __name__ == "__main__":
           )
         generate_embeddings(BASE_DIR,
         batch_size=500)
-        
-    user_query = input("Enter your logic question: ")
-    ask_logic_question(user_query)
+    return ask_logic_question(query)
+
+BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
+
+if __name__ == "__main__":
+    query=input('Enter user query: ')
+    response=main(query,FIRST_RUN=False)
