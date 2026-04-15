@@ -19,5 +19,5 @@ An automated Retrieval-Augmented Generation (RAG) pipeline designed to navigate 
 2. Initialize the pipeline:
    ```python
    from main import main
-   main("What are the three parts of a categorical syllogism?")
-
+   query="What is the 'Middle Term,' and why is its distribution critical for a valid syllogism?"
+   main(query,FIRST_RUN=False)
