@@ -10,7 +10,7 @@ An automated Retrieval-Augmented Generation (RAG) pipeline designed to navigate 
 
 ## 🛠️ Technical Stack
 - **Model:** `llama3:8b-instruct-q4_K_M` (via Ollama)
-- **Embeddings:** `nomic-embed-text`
+- **Embeddings:** `nomic-embed-text` (via Ollama)
 - **Similarity:** Cosine Similarity (Transitioning to FAISS)
 - **Environment:** Python 3.12 / Google Colab
 
