@@ -1,0 +1,5 @@
+ollama
+numpy
+scikit-learn
+tqdm
+faiss-cpu
