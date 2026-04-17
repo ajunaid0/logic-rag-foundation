@@ -3,3 +3,4 @@ vector_store/
 *.npy
 *.json
 *.faiss
+__pycache__/
