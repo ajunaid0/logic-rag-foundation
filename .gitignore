@@ -1,1 +1,5 @@
 vector_store/.ipynb_checkpoints/
+vector_store/
+*.npy
+*.json
+*.faiss
