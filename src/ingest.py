@@ -19,7 +19,7 @@ def load_documents(raw_data_path: str) -> list:
     """
     text_files = []
     if not os.path.exists(raw_data_path):
-        print(f"Error: Path '{raw_data_path}' not found.")
+        print(f"\nError: Path '{raw_data_path}' not found.")
         return text_files
 
     for root, _, files in os.walk(raw_data_path):
@@ -35,8 +35,8 @@ def load_documents(raw_data_path: str) -> list:
                             'content': content
                         })
                 except Exception as e:
-                    print(f"Error reading file {file_path}: {e}")
-    print(f"Loaded {len(text_files)} text files from {raw_data_path}.")
+                    print(f"\nError reading file {file_path}: {e}")
+    print(f"\nLoaded {len(text_files)} text files from {raw_data_path}.")
     return text_files
 
 def clean_document_content(documents: list) -> list:
@@ -82,7 +82,7 @@ def clean_document_content(documents: list) -> list:
 
         file_info['content'] = content
 
-    print(f"Content cleaning complete for {len(cleaned_docs)} documents.")
+    print(f"\nContent cleaning complete for {len(cleaned_docs)} documents.")
     return cleaned_docs
 
 def second_clean_document_content(documents: list) -> list:
@@ -144,7 +144,7 @@ def second_clean_document_content(documents: list) -> list:
 
         file_info['content'] = core_text.strip()
 
-    print(f"Schematic Cleaning: Consecutive blocks found. Preserving 2-header structure.")
+    print(f"\nSchematic Cleaning: Consecutive blocks found. Preserving 2-header structure.")
     return re_cleaned_docs
 
 def find_semantic_overlap_start(content, end_pos, overlap_target):
@@ -237,7 +237,7 @@ def chunk_documents(documents: list, chunk_size: int = 1500, overlap: int = 250)
 
     return all_chunks
 
-def save_chunks_to_json(chunks: list, output_directory: str, filename: str = 'metadata.json'):
+def save_chunks_to_json(chunks: list, output_directory: str, filename: str = 'all_chunks.json'):
     """
     Saves a list of chunks to a JSON file in the specified directory.
 
@@ -252,30 +252,28 @@ def save_chunks_to_json(chunks: list, output_directory: str, filename: str = 'me
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(chunks, f, indent=4)
-        print(f"Successfully saved {len(chunks)} chunks to {output_path}")
+        print(f"\nSuccessfully saved {len(chunks)} chunks to {output_path}")
     except Exception as e:
-        print(f"Error saving chunks to {output_path}: {e}")
-
-import os
+        print(f"\nError saving chunks to {output_path}: {e}")
 
 def ingestion_pipeline(base_path, chunk_size=800, overlap=200):
     """
     Main function to orchestrate the document processing workflow.
     Allows for dynamic adjustment of chunking parameters.
     """
+    print("----------------------------------")
+    print(f'\n[INFO] Document Type: .txt | Chunk Size: {chunk_size} | Chunk Overlap: {overlap}")')
+    print("----------------------------------")
     # Join the base_path with the specific sub-folders
     raw_data_path = os.path.join(base_path, 'data', 'logic_history_corpus')
     output_dir = os.path.join(base_path, 'vector_store')
     
-    output_filename = 'metadata.json'
-
-    print(f"Starting document ingestion and processing...")
-    print(f"Configuration: Chunk Size={chunk_size}, Overlap={overlap}")
+    output_filename = 'all_chunks.json'
 
     # Step 1: Load documents
     documents = load_documents(raw_data_path)
     if not documents:
-        print("No documents loaded. Exiting.")
+        print("\nNo documents loaded. Exiting.")
         return
 
     # Step 2: Clean document content
@@ -287,5 +285,4 @@ def ingestion_pipeline(base_path, chunk_size=800, overlap=200):
 
     # Step 4: Save chunks to JSON
     save_chunks_to_json(chunks, output_dir, output_filename)
-
-    print("Document processing complete.")
+    return chunk_size

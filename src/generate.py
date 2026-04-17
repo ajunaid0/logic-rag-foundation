@@ -1,7 +1,9 @@
-from ollama_setup import pull_ollama_model
+from rag_setup import pull_ollama_model
+import ollama
 
 def response(query,chunks,model):
-    import ollama
+    print(f'[INFO] Generation Model: {model}')
+
     instruction= '''You are an expert logician specializing in 19th-century formal logic. Please use the provided context to answer the user's question.'''
 
     g_ins='''
@@ -18,8 +20,6 @@ def response(query,chunks,model):
     response = ollama.chat(model=model, messages=[
         {'role':'system','content':instruction},
         {'role': 'user', 'content': f'###Instructions:\n{g_ins}\n\n###Context:{context_text}\n\n###Question:{query}'}])
-    print(f"Q: {query}\nA: {response['message']['content']}\n{'-'*30}")
-
     return response['message']['content']
 
 def generate_answer(query,top_k_chunks):

@@ -1,35 +1,52 @@
 import sys
 import os
 
-# Adding src to path so imports work locally
-sys.path.append(os.path.join(os.getcwd(), 'src'))
+BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
 
-from ollama_setup import ollama_utils
+sys.path.append(os.path.join(BASE_DIR, 'src'))
+
+from rag_setup import util_files
+util_files()
+
 from ingest import ingestion_pipeline
 from embed import generate_embeddings
 from generate import generate_answer
-from retrieve import get_top_k_chunks
+from retrieve import retrieve_chunks
 
-def ask_logic_question(query):
-    chunks = get_top_k_chunks(query,BASE_DIR,top_n=15)
+
+def ask_logic_question(query, method='faiss'):
+    print('=== Retrieval ===')
+    chunks = retrieve_chunks(query, BASE_DIR, top_n=15, method=method)
+    print("✔ Completed")
+    print("----------------------------------")
+    print('=== Generation ===')
     answer = generate_answer(query, chunks)
-    return answer
+    print('✔ Completed')
+    print("----------------------------------")
+    print(f"\nQ: {query}\nA: {answer}\n{'-'*30}")
+    return answer,chunks
+
+
+def main(query, FIRST_RUN=False, method='faiss'):
+
+    if FIRST_RUN:
+        print("Starting document ingestion and processing...")
+        chunks = ingestion_pipeline(
+            base_path=BASE_DIR,
+            chunk_size=800,
+            overlap=200
+        )
+        print("----------------------------------")
+        print(f"Document processing complete with {len(chunks)} chunks ingested")
+
+        print("Starting Chunk Embedding...")
+        generate_embeddings(BASE_DIR, batch_size=100, method=method)
+        print("----------------------------------")
+        print("Embedding Process Completed")
+
+    return ask_logic_question(query, method=method)
+
 
 if __name__ == "__main__":
-    
-    BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
-    # Change this to True if you are running for the first time
-    FIRST_RUN = False 
-    
-    ollama_utils()
-    if FIRST_RUN:
-        ingestion_pipeline(
-          base_path=BASE_DIR, 
-          chunk_size=800, 
-          overlap=200
-          )
-        generate_embeddings(BASE_DIR,
-        batch_size=500)
-        
-    user_query = input("Enter your logic question: ")
-    ask_logic_question(user_query)
+    query = input("\nEnter your question: ")
+    print(main(query))
