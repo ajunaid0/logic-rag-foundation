@@ -1,6 +1,6 @@
-vector_store/.ipynb_checkpoints/
+__pycache__/
+*.pyc
 vector_store/
 *.npy
 *.json
 *.faiss
-__pycache__/
