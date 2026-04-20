@@ -18,10 +18,10 @@ def load_chunks_from_json(file_path):
         with open(file_path, 'r') as f:
             all_chunks = json.load(f)
 
-        print(f"\nLoaded {len(all_chunks)} chunks")
+        #print(f"Loaded {len(all_chunks)} chunks")
 
     except Exception as e:
-        print(f"\nError loading chunks: {e}")
+        print(f"❌ Error loading chunks: {e}")
 
     return all_chunks
 
@@ -42,7 +42,7 @@ def embed_chunks_base(all_chunks, output_file_path, metadata_path, model_name, b
 
         batch = all_chunks[i:i + batch_size]
 
-        print(f"\nProcessing batch {i} to {i + len(batch) - 1}")
+        #print(f"Processing batch {i} to {i + len(batch) - 1}")
 
         for chunk in batch:
 
@@ -60,11 +60,13 @@ def embed_chunks_base(all_chunks, output_file_path, metadata_path, model_name, b
                     break
 
                 except Exception as e:
-                    print(f"\nRetry {attempt+1} failed: {e}")
+                    print(f"Retry {attempt+1} failed: {e}")
                     time.sleep(1)
 
             if not success:
-                print(f"\nDROPPED chunk {chunk['chunk_id']}")
+                print(f"DROPPED chunk {chunk['chunk_id']}")
+    if len(valid_embeddings) == 0:
+        raise ValueError("❌ No embeddings generated")
 
     embeddings_array = np.array(valid_embeddings).astype('float32')
 
@@ -73,7 +75,7 @@ def embed_chunks_base(all_chunks, output_file_path, metadata_path, model_name, b
     with open(metadata_path, "w") as f:
         json.dump(valid_chunks, f)
 
-    print(f"\nBase embeddings saved: {embeddings_array.shape}")
+    #print(f"Base embeddings saved: {embeddings_array.shape}")
 
     return valid_chunks, embeddings_array
 
@@ -96,7 +98,7 @@ def embed_chunks_faiss(all_chunks, index_path, metadata_path, model_name, batch_
 
         batch = all_chunks[i:i + batch_size]
 
-        print(f"\nProcessing batch {i} to {i + len(batch) - 1}")
+        #print(f"\nProcessing batch {i} to {i + len(batch) - 1}")
 
         for chunk in batch:
 
@@ -117,18 +119,20 @@ def embed_chunks_faiss(all_chunks, index_path, metadata_path, model_name, batch_
                     break
 
                 except Exception as e:
-                    print(f"\nRetry {attempt+1} failed: {e}")
+                    print(f"Retry {attempt+1} failed: {e}")
                     time.sleep(1)
 
             if not success:
-                print(f"\nDROPPED chunk {chunk['chunk_id']}")
+                print(f"DROPPED chunk {chunk['chunk_id']}")
 
     if len(valid_embeddings) == 0:
-        raise ValueError("\nNo embeddings generated")
+        raise ValueError("❌ No embeddings generated")
 
     embeddings_array = np.array(valid_embeddings).astype('float32')
+    faiss.normalize_L2(embeddings_array)
 
-    index = faiss.IndexFlatL2(embeddings_array.shape[1])
+
+    index = faiss.IndexFlatIP(embeddings_array.shape[1]) #providing embeddings dimension
     index.add(embeddings_array)
 
     faiss.write_index(index, index_path)
@@ -136,7 +140,7 @@ def embed_chunks_faiss(all_chunks, index_path, metadata_path, model_name, batch_
     with open(metadata_path, "w") as f:
         json.dump(valid_chunks, f)
 
-    print(f"\nFAISS index saved with {index.ntotal} vectors")
+    #print(f"\nFAISS index saved with {index.ntotal} vectors")
 
     return valid_chunks, index
 
@@ -159,16 +163,13 @@ def generate_embeddings(base_path, batch_size=100, method='base'):
     all_chunks = load_chunks_from_json(CHUNKS_PATH)
 
     if not all_chunks:
-        print("\nNo chunks found")
+        print("❌ No chunks found")
         return
 
     pull_ollama_model(MODEL_NAME)
 
     if method == 'base':
-
-        print("----------------------------------")
-        print(f'\n[INFO] Embedding Model: {MODEL_NAME} | Storage Method: Numpy Embeddings")')
-        print("----------------------------------")
+        print(f'[INFO] Embedding Model: {MODEL_NAME} | Storage Method: Numpy Embeddings')
 
         return embed_chunks_base(
             all_chunks,
@@ -179,10 +180,7 @@ def generate_embeddings(base_path, batch_size=100, method='base'):
         )
 
     elif method == 'faiss':
-
-        print("----------------------------------")
-        print(f'\n[INFO] Embedding Model: {MODEL_NAME} | Storage Method: FAISS Indices")')
-        print("----------------------------------")
+        print(f'[INFO] Embedding Model: {MODEL_NAME} | Storage Method: FAISS Indices')
 
         return embed_chunks_faiss(
             all_chunks,
@@ -193,4 +191,4 @@ def generate_embeddings(base_path, batch_size=100, method='base'):
         )
 
     else:
-        raise ValueError("\nmethod must be 'base' or 'faiss'")
+        raise ValueError("method must be 'base' or 'faiss'")

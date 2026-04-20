@@ -36,7 +36,7 @@ def load_documents(raw_data_path: str) -> list:
                         })
                 except Exception as e:
                     print(f"\nError reading file {file_path}: {e}")
-    print(f"\nLoaded {len(text_files)} text files from {raw_data_path}.")
+    print(f'[INFO] Total Documents Loaded: {len(text_files)} | Document Type: .txt')
     return text_files
 
 def clean_document_content(documents: list) -> list:
@@ -82,7 +82,7 @@ def clean_document_content(documents: list) -> list:
 
         file_info['content'] = content
 
-    print(f"\nContent cleaning complete for {len(cleaned_docs)} documents.")
+    print(f"✔ Initial cleaning completed.")
     return cleaned_docs
 
 def second_clean_document_content(documents: list) -> list:
@@ -144,7 +144,7 @@ def second_clean_document_content(documents: list) -> list:
 
         file_info['content'] = core_text.strip()
 
-    print(f"\nSchematic Cleaning: Consecutive blocks found. Preserving 2-header structure.")
+    print(f"✔ Schematic Cleaning Completed.")
     return re_cleaned_docs
 
 def find_semantic_overlap_start(content, end_pos, overlap_target):
@@ -172,18 +172,17 @@ def find_semantic_overlap_start(content, end_pos, overlap_target):
     # Fallback: Just use the mathematical overlap
     return max(0, end_pos - overlap_target)
 
-def chunk_documents(documents: list, chunk_size: int = 1500, overlap: int = 250) -> list:
+def chunk_documents(documents, chunk_size, overlap) -> list:
     all_chunks = []
     chunk_id_counter = 0
 
-    for file_info in tqdm(documents, desc="Total Progress"):
+    for file_info in tqdm(documents, desc="Chunking Progress"):
         content = file_info['content']
         filename = file_info['filename']
         filepath = file_info['path']
 
         total_len = len(content)
         current_pos = 0
-        pbar = tqdm(total=total_len, desc=f"   {filename[:20]}", leave=False)
 
         while current_pos < total_len:
             # 1. Determine End Point (Backtrack from chunk_size)
@@ -218,25 +217,21 @@ def chunk_documents(documents: list, chunk_size: int = 1500, overlap: int = 250)
                 chunk_id_counter += 1
 
             if end_pos >= total_len:
-                pbar.update(total_len - pbar.n)
                 break
 
             # 2. GUARANTEED OVERLAP LOGIC
-            # Instead of looking forward from a point, we look BACK from end_pos
             new_pos = find_semantic_overlap_start(content, end_pos, overlap)
 
-            # Safety check: ensure we always make progress to prevent infinite loops
+            # Safety check
             if new_pos <= current_pos:
                 new_pos = end_pos
 
-            pbar.update(new_pos - current_pos)
             current_pos = new_pos
 
-        pbar.close()
         gc.collect()
 
     return all_chunks
-
+    
 def save_chunks_to_json(chunks: list, output_directory: str, filename: str = 'all_chunks.json'):
     """
     Saves a list of chunks to a JSON file in the specified directory.
@@ -252,18 +247,15 @@ def save_chunks_to_json(chunks: list, output_directory: str, filename: str = 'al
     try:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(chunks, f, indent=4)
-        print(f"\nSuccessfully saved {len(chunks)} chunks to {output_path}")
+        print(f"✔ Chunks Saved as JSON.")
     except Exception as e:
-        print(f"\nError saving chunks to {output_path}: {e}")
+        print(f"❌ Error saving chunks to {output_path}: {e}")
 
-def ingestion_pipeline(base_path, chunk_size=800, overlap=200):
+def ingestion_pipeline(base_path, chunk_size:int=200, overlap:int=50):
     """
     Main function to orchestrate the document processing workflow.
     Allows for dynamic adjustment of chunking parameters.
     """
-    print("----------------------------------")
-    print(f'\n[INFO] Document Type: .txt | Chunk Size: {chunk_size} | Chunk Overlap: {overlap}")')
-    print("----------------------------------")
     # Join the base_path with the specific sub-folders
     raw_data_path = os.path.join(base_path, 'data', 'logic_history_corpus')
     output_dir = os.path.join(base_path, 'vector_store')
@@ -273,16 +265,17 @@ def ingestion_pipeline(base_path, chunk_size=800, overlap=200):
     # Step 1: Load documents
     documents = load_documents(raw_data_path)
     if not documents:
-        print("\nNo documents loaded. Exiting.")
+        print("❌ No documents loaded. Please Ensure to upload atleast 1 document to start the chunking process.")
         return
 
     # Step 2: Clean document content
     cleaned_documents = clean_document_content(documents)
     second_cleaned_documents = second_clean_document_content(cleaned_documents)
-
+    
     # Step 3: Chunk documents with provided parameters
     chunks = chunk_documents(second_cleaned_documents, chunk_size=chunk_size, overlap=overlap)
+    print(f'[INFO] Chunk Size: {chunk_size} | Chunk Overlap: {overlap} | Total Chunks Created: {len(chunks)}')
 
     # Step 4: Save chunks to JSON
     save_chunks_to_json(chunks, output_dir, output_filename)
-    return chunk_size
+    return chunks

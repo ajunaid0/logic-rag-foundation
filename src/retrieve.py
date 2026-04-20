@@ -66,7 +66,8 @@ def base_retrieval(query_embedding_response, embeddings_path, chunks_path, top_n
 # -----------------------------
 def faiss_retrieval(query_embedding_response, index, chunks_path, top_n):
 
-    query_embedding = np.array(query_embedding_response['embedding']).astype('float32').reshape(1, -1)
+    query_embedding = np.array(query_embedding_response['embedding']).astype('float32').reshape(1,-1) #changing shape to 2D embedding
+    faiss.normalize_L2(query_embedding)
 
     distances, indices = index.search(query_embedding, top_n)
 

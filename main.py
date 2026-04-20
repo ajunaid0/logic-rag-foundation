@@ -30,19 +30,19 @@ def ask_logic_question(query, method='faiss'):
 def main(query, FIRST_RUN=False, method='faiss'):
 
     if FIRST_RUN:
-        print("Starting document ingestion and processing...")
+        print("=== Ingestion and Chunking ===")
         chunks = ingestion_pipeline(
             base_path=BASE_DIR,
-            chunk_size=800,
-            overlap=200
+            chunk_size=500,
+            overlap=150
         )
+        print(f"✔ Completed")
         print("----------------------------------")
-        print(f"Document processing complete with {len(chunks)} chunks ingested")
 
-        print("Starting Chunk Embedding...")
-        generate_embeddings(BASE_DIR, batch_size=100, method=method)
+        print("=== Embedding Generation ===")
+        valid_chunks,embeded_data=generate_embeddings(BASE_DIR, batch_size=100, method=method)
+        print("✔ Completed")
         print("----------------------------------")
-        print("Embedding Process Completed")
 
     return ask_logic_question(query, method=method)
 
