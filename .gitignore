@@ -5,3 +5,4 @@ __pycache__/
 *.npy
 *.json
 *.faiss
+src/__pycache__/
