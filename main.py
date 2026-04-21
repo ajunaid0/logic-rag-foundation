@@ -1,5 +1,6 @@
 import sys
 import os
+import pandas as pd
 
 BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
 
@@ -17,14 +18,16 @@ from retrieve import retrieve_chunks
 def ask_logic_question(query, method='faiss'):
     print('=== Retrieval ===')
     chunks = retrieve_chunks(query, BASE_DIR, top_n=15, method=method)
-    print("✔ Completed")
+    #print("✔ Completed")
+    df_chunks = pd.DataFrame(chunks)[['score','source', 'text']]
+    print(df_chunks.to_string())
     print("----------------------------------")
     print('=== Generation ===')
     answer = generate_answer(query, chunks)
     print('✔ Completed')
     print("----------------------------------")
-    print(f"\nQ: {query}\nA: {answer}\n{'-'*30}")
-    return answer,chunks
+    
+    return print(f"\nQ: {query}\nA: {answer}\n{'-'*30}")
 
 
 def main(query, FIRST_RUN=False, method='faiss'):

@@ -10,12 +10,13 @@ def response(query,chunks,model):
     While answering make sure:
     1. You always provide the answer from the provided context.
     2. Do not use your internal knowledge to answer any question.
-    3. Where you are unsure of the answer, please respond with "I don't know" instead of providing vague answer.
-    4. If the answer is not in the context, please respond with "Insufficient Information on this question" instead of a vague answer.
-    5. Always cite the source.
-    If a question asks for a list or multiple rules, look across all provided chunks to compile the full set.
+    3. If the answer is not in the context or there is no context, please respond with this exactly: "Could not find any probable answer about the query from the source files.", nothing else.
+    4. Always cite the source if an answer is found from the context.
+    5.If a question asks for a list or multiple rules, look across all provided chunks to compile the full set.
     '''
-    context_text = "\n\n".join([f"Source: {c['source']}\nContent: {c['text']}" for c in chunks])
+    context_text = "\n\n".join([
+    f"Source: {c['source'].replace('_', ' ').replace('.txt', '')}\nContent: {c['text']}"
+    for c in chunks])
 
     response = ollama.chat(model=model, messages=[
         {'role':'system','content':instruction},

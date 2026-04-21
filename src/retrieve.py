@@ -32,23 +32,11 @@ def base_retrieval(query_embedding_response, embeddings_path, chunks_path, top_n
 
     retrieved_chunks = []
 
-    #print(f"\n--- Top {top_n} Retrieved Documents ---")
-
     for i, idx in enumerate(top_indices):
         if idx < len(all_chunks):
 
             chunk = all_chunks[idx]
             score = float(top_scores[i])
-
-            '''
-
-            print(
-                f"\nMatch {i+1} (Score: {score:.4f}) | "
-                f"Chunk ID: {chunk.get('chunk_id')} | "
-                f"Source: {chunk.get('source')} | "
-                f"Text: {chunk.get('text')}"
-            )
-            '''
 
             retrieved_chunks.append({
                 'score': score,
@@ -91,16 +79,7 @@ def faiss_retrieval(query_embedding_response, index, chunks_path, top_n):
             retrieved_chunks.append(result)
 
     # Sort by distance (lower = better for L2)
-    sorted_chunks = sorted(retrieved_chunks, key=lambda x: x['score'])
-    '''
-    for i, chunk in enumerate(sorted_chunks):
-        print(
-            f"\nMatch {i+1} (Score: {chunk['score']}) | "
-            f"Chunk ID: {chunk['chunk_id']} | "
-            f"Source: {chunk['source']} | "
-            f"Text: {chunk['text']}"
-        )
-    '''
+    sorted_chunks = sorted(retrieved_chunks, key=lambda x: x['score'], reverse=True)
     
     return sorted_chunks
 
