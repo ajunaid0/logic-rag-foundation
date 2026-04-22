@@ -1,6 +1,8 @@
 import sys
 import os
 import pandas as pd
+from tabulate import tabulate
+import textwrap
 
 BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
 
@@ -20,7 +22,9 @@ def ask_logic_question(query, method='faiss'):
     chunks = retrieve_chunks(query, BASE_DIR, top_n=15, method=method)
     #print("✔ Completed")
     df_chunks = pd.DataFrame(chunks)[['score','source', 'text']]
-    print(df_chunks.to_string())
+    df_chunks['source']=df_chunks['source'].apply(lambda x: textwrap.fill(x, width=20))
+    df_chunks['text']=df_chunks['text'].apply(lambda x: textwrap.fill(x, width=50))
+    print(tabulate(df_chunks, headers = 'keys', tablefmt = 'fancy_grid'))
     print("----------------------------------")
     print('=== Generation ===')
     answer = generate_answer(query, chunks)

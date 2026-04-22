@@ -147,91 +147,124 @@ def second_clean_document_content(documents: list) -> list:
     print(f"✔ Schematic Cleaning Completed.")
     return re_cleaned_docs
 
-def find_semantic_overlap_start(content, end_pos, overlap_target):
+
+def split_into_paragraphs(text):
     """
-    Guarantees overlap by looking back from the end_pos and finding
-    the best semantic break near the overlap_target.
+    Split text into paragraphs based on blank lines.
     """
-    # Define the search window for the overlap start
-    # We look back from the end of the previous chunk
-    search_start = max(0, end_pos - (overlap_target + 100))
-    search_end = end_pos - int(overlap_target * 0.5) # Ensure at least 50% of target overlap
+    return [p.strip() for p in re.split(r'\n\s*\n', text) if p.strip()]
 
-    overlap_window = content[search_start:search_end]
 
-    # Priority 1: Double Newline
-    indices = [m.start() for m in re.finditer(r'\n\n', overlap_window)]
-    if indices:
-        return search_start + indices[-1] + 2
+def split_into_sentences(text):
+    """
+    Split paragraph into sentences.
+    Keeps punctuation attached to sentence end.
+    Handles ., !, ? and quotes like .' or ." etc.
+    """
+    parts = re.split(r'([.!?][\'"]?\s+)', text)
 
-    # Priority 2: Sentence end
-    indices = [m.end() for m in re.finditer(r'[.!?](\s+)', overlap_window)]
-    if indices:
-        return search_start + indices[-1]
+    sentences = []
+    i = 0
 
-    # Fallback: Just use the mathematical overlap
-    return max(0, end_pos - overlap_target)
+    while i < len(parts) - 1:
+        sentence = parts[i] + parts[i + 1]
+        sentences.append(sentence.strip())
+        i += 2
 
-def chunk_documents(documents, chunk_size, overlap) -> list:
-    all_chunks = []
-    chunk_id_counter = 0
+    # leftover text without punctuation
+    if i < len(parts):
+        leftover = parts[i].strip()
+        if leftover:
+            sentences.append(leftover)
 
-    for file_info in tqdm(documents, desc="Chunking Progress"):
-        content = file_info['content']
-        filename = file_info['filename']
-        filepath = file_info['path']
+    return sentences
 
-        total_len = len(content)
-        current_pos = 0
 
-        while current_pos < total_len:
-            # 1. Determine End Point (Backtrack from chunk_size)
-            end_pos = min(current_pos + chunk_size, total_len)
+def get_overlap_sentences(sentences, overlap_limit):
+    """
+    Take sentences from the end until overlap limit (char-based) is reached.
+    Ensures at least 1 sentence is returned if possible.
+    """
+    overlap = []
+    total = 0
 
-            if end_pos < total_len:
-                chunk_raw = content[current_pos:end_pos]
-                # Look for end-of-chunk break in the last 30% of the window
-                search_buffer_start = int(chunk_size * 0.7)
-                search_buffer = chunk_raw[search_buffer_start:]
+    # go backwards and collect sentences
+    for s in reversed(sentences):
+        if total + len(s) > overlap_limit and overlap:
+            break
+        overlap.insert(0, s)
+        total += len(s)
 
-                # Prioritize paragraph/sentence ends for the CHUNK END
-                break_points = list(re.finditer(r'(\n\n|\n|[.!?]\s+)', search_buffer))
-                if break_points:
-                    end_pos = current_pos + search_buffer_start + break_points[-1].end()
-                else:
-                    # Fallback to space
-                    last_space = chunk_raw.rfind(' ')
-                    if last_space != -1 and last_space > (chunk_size * 0.5):
-                        end_pos = current_pos + last_space + 1
+    # safety: always include at least last sentence if empty
+    if not overlap and sentences:
+        overlap = [sentences[-1]]
 
-            chunk_text = content[current_pos:end_pos].strip()
+    return overlap
 
-            if chunk_text:
-                all_chunks.append({
-                    "chunk_id": chunk_id_counter,
-                    "text": chunk_text,
-                    "source": filename,
-                    "path": filepath,
-                    "char_start": current_pos
-                })
-                chunk_id_counter += 1
 
-            if end_pos >= total_len:
-                break
+def chunk_documents(documents, chunk_size, overlap):
+    """
+    Main chunking function:
+    - sentence-based chunking
+    - fixed size chunks
+    - overlap between chunks
+    - no sentence splitting inside chunks
+    """
+    chunks = []
+    chunk_id = 0
 
-            # 2. GUARANTEED OVERLAP LOGIC
-            new_pos = find_semantic_overlap_start(content, end_pos, overlap)
+    for doc in tqdm(documents, desc="Chunking Progress"):
+        content = doc['content']
+        filename = doc['filename']
+        path = doc['path']
 
-            # Safety check
-            if new_pos <= current_pos:
-                new_pos = end_pos
+        paragraphs = split_into_paragraphs(content)
 
-            current_pos = new_pos
+        current_chunk = []
+        current_len = 0
 
+        for para in paragraphs:
+            sentences = split_into_sentences(para)
+
+            for sent in sentences:
+                sent_len = len(sent)
+
+                # if adding sentence exceeds chunk size, close current chunk
+                if current_len + sent_len > chunk_size and current_chunk:
+
+                    chunks.append({
+                        "chunk_id": chunk_id,
+                        "text": " ".join(current_chunk).strip(),
+                        "source": filename,
+                        "path": path
+                    })
+                    chunk_id += 1
+
+                    # build overlap from previous chunk
+                    overlap_sents = get_overlap_sentences(current_chunk, overlap)
+
+                    # start new chunk with overlap
+                    current_chunk = overlap_sents
+                    current_len = sum(len(s) for s in current_chunk)
+
+                # always add full sentence (never split sentence)
+                current_chunk.append(sent)
+                current_len += sent_len
+
+        # add final remaining chunk
+        if current_chunk:
+            chunks.append({
+                "chunk_id": chunk_id,
+                "text": " ".join(current_chunk).strip(),
+                "source": filename,
+                "path": path
+            })
+
+        chunk_id += 1
         gc.collect()
 
-    return all_chunks
-    
+    return chunks
+  
 def save_chunks_to_json(chunks: list, output_directory: str, filename: str = 'all_chunks.json'):
     """
     Saves a list of chunks to a JSON file in the specified directory.
