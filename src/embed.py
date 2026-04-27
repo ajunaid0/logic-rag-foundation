@@ -6,189 +6,195 @@ from tqdm import tqdm
 import faiss
 import ollama
 
+# Assuming this exists in your local environment
 from rag_setup import pull_ollama_model
-
 
 # -----------------------------
 # LOAD CHUNKS
 # -----------------------------
 def load_chunks_from_json(file_path):
-    all_chunks = []
     try:
-        with open(file_path, 'r') as f:
-            all_chunks = json.load(f)
-
-        #print(f"Loaded {len(all_chunks)} chunks")
-
+        with open(file_path, "r") as file:
+            data = json.load(file)
+            print(f"[INFO] Source: {file_path} | Chunks Loaded: {len(data)}")
+            return data
     except Exception as e:
-        print(f"❌ Error loading chunks: {e}")
-
-    return all_chunks
-
+        print(f"[ERROR] Failed to load {file_path}: {e}")
+        return []
 
 # -----------------------------
-# BASE EMBEDDING PIPELINE
+# EMBEDDING CALL
 # -----------------------------
-def embed_chunks_base(all_chunks, output_file_path, metadata_path, model_name, batch_size):
+def get_embedding(client, model_name, text):
+    response = client.embeddings(
+        model=model_name,
+        prompt=text
+    )
+    return response["embedding"]
 
+# -----------------------------
+# SMART SPLIT (CHAR-AWARE)
+# -----------------------------
+def split_chunk(text, max_chars=800):
+    if len(text) <= max_chars:
+        return [text]
+
+    parts = []
+    paragraphs = text.split("\n\n")
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para: continue
+
+        if len(para) <= max_chars:
+            parts.append(para)
+            continue
+
+        lines = para.split("\n")
+        current = ""
+
+        for line in lines:
+            if len(current) + len(line) + 1 <= max_chars:
+                current += (" " + line) if current else line
+            else:
+                if current:
+                    parts.append(current.strip())
+                if len(line) > max_chars:
+                    for i in range(0, len(line), max_chars):
+                        parts.append(line[i:i + max_chars])
+                    current = ""
+                else:
+                    current = line
+        if current:
+            parts.append(current.strip())
+    return parts
+
+# -----------------------------
+# EMBED WITH RECOVERY
+# -----------------------------
+def embed_chunk_with_recovery(client, model_name, chunk):
+    text = chunk["text"]
+    cid = chunk.get('chunk_id', 'N/A')
+
+    # Try full chunk first
+    for attempt in range(3):
+        try:
+            return get_embedding(client, model_name, text)
+        except Exception:
+            if attempt < 2:
+                print(f"[RETRY] Chunk: {cid} | Attempt: {attempt+1}/3")
+                time.sleep(1)
+
+    # Split and Mean-Pool logic
+    print(f"[SPLIT] Chunk: {cid} | Length: {len(text)} chars | Action: Recursive Mean-Pooling")
+    parts = split_chunk(text)
+    part_embeddings = []
+
+    for part in parts:
+        for attempt in range(3):
+            try:
+                emb = get_embedding(client, model_name, part)
+                part_embeddings.append(emb)
+                break
+            except Exception:
+                time.sleep(1)
+
+    if not part_embeddings:
+        print(f"[FAILED] Chunk: {cid} | Status: Dropped after split attempts")
+        return None
+
+    return np.mean(np.array(part_embeddings), axis=0).tolist()
+
+# -----------------------------
+# MAIN EMBEDDING LOOP
+# -----------------------------
+def generate_embeddings_only(all_chunks, model_name, batch_size):
     client = ollama.Client(timeout=120)
-
+    embeddings = []
     valid_chunks = []
-    valid_embeddings = []
-
     total_chunks = len(all_chunks)
 
-    for i in tqdm(range(0, total_chunks, batch_size)):
+    progress = tqdm(total=total_chunks, desc="Processing Vectors")
 
+    for i in range(0, total_chunks, batch_size):
         batch = all_chunks[i:i + batch_size]
-
-        #print(f"Processing batch {i} to {i + len(batch) - 1}")
-
         for chunk in batch:
+            embedding = embed_chunk_with_recovery(client, model_name, chunk)
+            if embedding is not None:
+                embeddings.append(embedding)
+                valid_chunks.append(chunk)
+            progress.update(1)
 
-            success = False
+    progress.close()
 
-            for attempt in range(3):
-                try:
-                    res = client.embeddings(model=model_name, prompt=chunk['text'])
-                    embedding = res['embedding']
+    if not embeddings:
+        raise ValueError("[ERROR] Pipeline generated zero embeddings.")
 
-                    valid_chunks.append(chunk)
-                    valid_embeddings.append(embedding)
-
-                    success = True
-                    break
-
-                except Exception as e:
-                    print(f"Retry {attempt+1} failed: {e}")
-                    time.sleep(1)
-
-            if not success:
-                print(f"DROPPED chunk {chunk['chunk_id']}")
-    if len(valid_embeddings) == 0:
-        raise ValueError("❌ No embeddings generated")
-
-    embeddings_array = np.array(valid_embeddings).astype('float32')
-
-    np.save(output_file_path, embeddings_array)
-
-    with open(metadata_path, "w") as f:
-        json.dump(valid_chunks, f)
-
-    #print(f"Base embeddings saved: {embeddings_array.shape}")
-
-    return valid_chunks, embeddings_array
-
+    return valid_chunks, np.array(embeddings).astype("float32")
 
 # -----------------------------
-# FAISS PIPELINE
+# STORAGE
 # -----------------------------
-def embed_chunks_faiss(all_chunks, index_path, metadata_path, model_name, batch_size):
+def store_base_embeddings(chunks, embeddings, emb_path, meta_path):
+    np.save(emb_path, embeddings)
+    with open(meta_path, "w") as file:
+        json.dump(chunks, file)
+    print(f"[STORAGE] Base Assets: {os.path.basename(emb_path)} saved")
 
-    client = ollama.Client(timeout=120)
-
-    valid_chunks = []
-    valid_embeddings = []
-
-    total_chunks = len(all_chunks)
-
-    dim = None
-
-    for i in tqdm(range(0, total_chunks, batch_size)):
-
-        batch = all_chunks[i:i + batch_size]
-
-        #print(f"\nProcessing batch {i} to {i + len(batch) - 1}")
-
-        for chunk in batch:
-
-            success = False
-
-            for attempt in range(3):
-                try:
-                    res = client.embeddings(model=model_name, prompt=chunk['text'])
-                    embedding = res['embedding']
-
-                    if dim is None:
-                        dim = len(embedding)
-
-                    valid_chunks.append(chunk)
-                    valid_embeddings.append(embedding)
-
-                    success = True
-                    break
-
-                except Exception as e:
-                    print(f"Retry {attempt+1} failed: {e}")
-                    time.sleep(1)
-
-            if not success:
-                print(f"DROPPED chunk {chunk['chunk_id']}")
-
-    if len(valid_embeddings) == 0:
-        raise ValueError("❌ No embeddings generated")
-
-    embeddings_array = np.array(valid_embeddings).astype('float32')
-    faiss.normalize_L2(embeddings_array)
-
-
-    index = faiss.IndexFlatIP(embeddings_array.shape[1]) #providing embeddings dimension
-    index.add(embeddings_array)
-
+def store_faiss_embeddings(chunks, embeddings, index_path, meta_path):
+    faiss.normalize_L2(embeddings)
+    index = faiss.IndexFlatIP(embeddings.shape[1])
+    index.add(embeddings)
     faiss.write_index(index, index_path)
-
-    with open(metadata_path, "w") as f:
-        json.dump(valid_chunks, f)
-
-    #print(f"\nFAISS index saved with {index.ntotal} vectors")
-
-    return valid_chunks, index
-
+    with open(meta_path, "w") as file:
+        json.dump(chunks, file)
+    print(f"[STORAGE] FAISS Index: {os.path.basename(index_path)} saved")
+    return index
 
 # -----------------------------
-# MAIN FUNCTION
+# MAIN PIPELINE
 # -----------------------------
-def generate_embeddings(base_path, batch_size=100, method='base'):
+def generate_embeddings(
+    embedding_model_name="nomic-embed-text",
+    base_path="/content/",
+    batch_size=100,
+    method="base"
+):
+    # Setup Paths
+    vs_dir = os.path.join(base_path, "vector_store")
+    os.makedirs(vs_dir, exist_ok=True)
+    
+    chunks_path = os.path.join(vs_dir, "all_chunks.json")
+    base_emb_path = os.path.join(vs_dir, "embeddings.npy")
+    base_meta_path = os.path.join(vs_dir, "base_metadata.json")
+    faiss_index_path = os.path.join(vs_dir, "faiss_index.faiss")
+    faiss_meta_path = os.path.join(vs_dir, "faiss_metadata.json")
 
-    CHUNKS_PATH = os.path.join(base_path, 'vector_store', 'all_chunks.json')
-
-    BASE_EMB_PATH = os.path.join(base_path, 'vector_store', 'embeddings.npy')
-    BASE_META_PATH = os.path.join(base_path, 'vector_store', 'base_metadata.json')
-
-    FAISS_INDEX_PATH = os.path.join(base_path, 'vector_store', 'faiss_index.faiss')
-    FAISS_META_PATH = os.path.join(base_path, 'vector_store', 'faiss_metadata.json')
-
-    MODEL_NAME = 'nomic-embed-text'
-
-    all_chunks = load_chunks_from_json(CHUNKS_PATH)
-
+    all_chunks = load_chunks_from_json(chunks_path)
     if not all_chunks:
-        print("❌ No chunks found")
         return
 
-    pull_ollama_model(MODEL_NAME)
+    # Initialization Log
+    print(f"[INFO] Model: {embedding_model_name} | Method: {method.upper()} | Batch: {batch_size}")
 
-    if method == 'base':
-        print(f'[INFO] Embedding Model: {MODEL_NAME} | Storage Method: Numpy Embeddings')
+    pull_ollama_model(embedding_model_name)
 
-        return embed_chunks_base(
-            all_chunks,
-            BASE_EMB_PATH,
-            BASE_META_PATH,
-            MODEL_NAME,
-            batch_size
-        )
+    chunks, embeddings = generate_embeddings_only(
+        all_chunks,
+        embedding_model_name,
+        batch_size
+    )
 
-    elif method == 'faiss':
-        print(f'[INFO] Embedding Model: {MODEL_NAME} | Storage Method: FAISS Indices')
+    # Success Log
+    print(f"[SUCCESS] Final Count: {len(chunks)} | Vector Dim: {embeddings.shape[1]}")
 
-        return embed_chunks_faiss(
-            all_chunks,
-            FAISS_INDEX_PATH,
-            FAISS_META_PATH,
-            MODEL_NAME,
-            batch_size
-        )
+    if method in ["base"]:
+        store_base_embeddings(chunks, embeddings, base_emb_path, base_meta_path)
+
+    if method in ["faiss"]:
+        store_faiss_embeddings(chunks, embeddings, faiss_index_path, faiss_meta_path)
 
     else:
-        raise ValueError("method must be 'base' or 'faiss'")
+        raise ValueError("[ERROR] Method must be 'base' or 'faiss'")
+    
+    return chunks, embeddings

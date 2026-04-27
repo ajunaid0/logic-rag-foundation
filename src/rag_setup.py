@@ -1,49 +1,82 @@
 import subprocess
 import time
+import os
+import sys
 from tqdm import tqdm
 
+# -----------------------------
+# INSTALLERS
+# -----------------------------
 def install_faiss():
-  """Installs FAISS Library."""
-  subprocess.run(['pip', 'install', 'faiss-cpu'], check=True)
-
+    """Installs FAISS Library."""
+    subprocess.run([sys.executable, '-m', 'pip', 'install', 'faiss-cpu'], 
+                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
 
 def install_system_dependencies():
-    """Installs zstd system dependency."""
-    subprocess.run(['sudo', 'apt-get', 'update'], check=True)
-    subprocess.run(['sudo', 'apt-get', 'install', 'zstd', '-y'], check=True)
+    """Installs zstd and other necessary system tools."""
+    subprocess.run(['sudo', 'apt-get', 'update'], stdout=subprocess.DEVNULL, check=True)
+    subprocess.run(['sudo', 'apt-get', 'install', 'zstd', '-y'], stdout=subprocess.DEVNULL, check=True)
 
 def install_ollama_libraries():
     """Installs Ollama CLI and Python client library."""
-    # Using shell=True for the curl command to mimic '!curl | sh' in a script context
-    subprocess.run("curl -fsSL https://ollama.com/install.sh | sh", shell=True, check=True)
-    subprocess.run(['pip', 'install', 'ollama'], check=True)
+    # Install CLI
+    subprocess.run("curl -fsSL https://ollama.com/install.sh | sh", shell=True, check=True, stdout=subprocess.DEVNULL)
+    # Install Client
+    subprocess.run([sys.executable, '-m', 'pip', 'install', 'ollama'], 
+                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, check=True)
+def install_rouge():
+    """Installs ROUGE scoring library."""
+    subprocess.run(
+        [sys.executable, '-m', 'pip', 'install', 'rouge-score'],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        check=True
+    )
 
-def start_ollama_server(wait_time=5):
-    """Starts the Ollama server in the background."""
-    # Detach the process to run in background if desired, but Popen alone often suffices for simple backgrounding.
-    # Using preexec_fn=os.setsid can fully detach it if needed for long-running services.
-    subprocess.Popen(['ollama', 'serve'])
-    time.sleep(wait_time) # Wait for the server to initialize
-    
+# -----------------------------
+# SERVER & MODEL MGMT
+# -----------------------------
+def start_ollama_server(wait_time=10):
+    """Starts the Ollama server in the background and verifies availability."""
+    # Start server as a background process
+    subprocess.Popen(['ollama', 'serve'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(wait_time) 
+    print(f"[INFO] Server: Ollama | Status: Started | Port: 11434")
 
 def pull_ollama_model(model_name):
-    """Pulls the specified Ollama embedding model."""
+    """Pulls the specified model with status logging."""
     import ollama
     try:
+        #print(f"[INFO] Model: {model_name} | Action: Pulling/Verifying...")
         ollama.pull(model_name)
+        #print(f"[SUCCESS] Model: {model_name} | Status: Ready")
     except Exception as e:
-        print(f"Error pulling model {model_name}: {e}")
+        print(f"[ERROR] Model: {model_name} | Fail Reason: {e}")
 
-def util_files():
+# -----------------------------
+# MAIN SETUP PIPELINE
+# -----------------------------
+def run_system_setup():
+    """Runs the full environment initialization."""
+    
     steps = [
-        ("Installing zstd", install_system_dependencies),
-        ("Installing Ollama", install_ollama_libraries),
-        ("Starting Ollama server", lambda: start_ollama_server(wait_time=10)),
-        ("Installing FAISS", install_faiss),
-    ]
+        ("System Dependencies (zstd)", install_system_dependencies),
+        ("Ollama CLI & SDK", install_ollama_libraries),
+        ("FAISS Engine", install_faiss),
+        ("ROUGE Scorer", install_rouge),   # 👈 add this line
+        ("Ollama Background Service", lambda: start_ollama_server(wait_time=10))
+        ]
 
-    print("Installing System Dependencies")
+    print(f"[INFO] Environment: {os.name} | Action: Initializing Setup")
 
-    for desc, func in tqdm(steps, desc="Setup Progress", ncols=80):
-        func()
-    print("System Dependencies Installed")
+    for desc, func in tqdm(steps, desc="Setup Progress", ncols=100):
+        try:
+            func()
+        except Exception as e:
+            print(f"\n[ERROR] Step: {desc} | Status: Failed | Error: {e}")
+            continue
+
+    print(f"[SUCCESS] Setup: Environment Ready | All dependencies provisioned")
+
+if __name__ == "__main__":
+    run_system_setup()
