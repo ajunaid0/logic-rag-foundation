@@ -82,11 +82,11 @@ def embed_chunk_with_recovery(client, model_name, chunk):
             return get_embedding(client, model_name, text)
         except Exception:
             if attempt < 2:
-                print(f"[RETRY] Chunk: {cid} | Attempt: {attempt+1}/3")
+                print(f"\n[RETRY] Chunk: {cid} | Attempt: {attempt+1}/3")
                 time.sleep(1)
 
     # Split and Mean-Pool logic
-    print(f"[SPLIT] Chunk: {cid} | Length: {len(text)} chars | Action: Recursive Mean-Pooling")
+    print(f"\n[SPLIT] Chunk: {cid} | Length: {len(text)} chars | Action: Recursive Mean-Pooling")
     parts = split_chunk(text)
     part_embeddings = []
 
@@ -100,7 +100,7 @@ def embed_chunk_with_recovery(client, model_name, chunk):
                 time.sleep(1)
 
     if not part_embeddings:
-        print(f"[FAILED] Chunk: {cid} | Status: Dropped after split attempts")
+        print(f"\n[FAILED] Chunk: {cid} | Status: Dropped after split attempts")
         return None
 
     return np.mean(np.array(part_embeddings), axis=0).tolist()
@@ -128,7 +128,7 @@ def generate_embeddings_only(all_chunks, model_name, batch_size):
     progress.close()
 
     if not embeddings:
-        raise ValueError("[ERROR] Pipeline generated zero embeddings.")
+        raise ValueError("\n[ERROR] Pipeline generated zero embeddings.")
 
     return valid_chunks, np.array(embeddings).astype("float32")
 
@@ -139,7 +139,7 @@ def store_base_embeddings(chunks, embeddings, emb_path, meta_path):
     np.save(emb_path, embeddings)
     with open(meta_path, "w") as file:
         json.dump(chunks, file)
-    print(f"[STORAGE] Base Assets: {os.path.basename(emb_path)} saved")
+    print(f"\n[STORAGE] Base Assets: {os.path.basename(emb_path)} saved")
 
 def store_faiss_embeddings(chunks, embeddings, index_path, meta_path):
     faiss.normalize_L2(embeddings)
@@ -148,7 +148,7 @@ def store_faiss_embeddings(chunks, embeddings, index_path, meta_path):
     faiss.write_index(index, index_path)
     with open(meta_path, "w") as file:
         json.dump(chunks, file)
-    print(f"[STORAGE] FAISS Index: {os.path.basename(index_path)} saved")
+    print(f"\n[STORAGE] FAISS Index: {os.path.basename(index_path)} saved")
     return index
 
 # -----------------------------
@@ -175,7 +175,7 @@ def generate_embeddings(
         return
 
     # Initialization Log
-    print(f"[INFO] Model: {embedding_model_name} | Method: {method.upper()} | Batch: {batch_size}")
+    print(f"\n[INFO] Model: {embedding_model_name} | Method: {method.upper()} | Batch: {batch_size}")
 
     pull_ollama_model(embedding_model_name)
 
@@ -186,7 +186,7 @@ def generate_embeddings(
     )
 
     # Success Log
-    print(f"[SUCCESS] Final Count: {len(chunks)} | Vector Dim: {embeddings.shape[1]}")
+    print(f"\n[SUCCESS] Final Count: {len(chunks)} | Vector Dim: {embeddings.shape[1]}")
 
     if method in ["base"]:
         store_base_embeddings(chunks, embeddings, base_emb_path, base_meta_path)
@@ -195,6 +195,6 @@ def generate_embeddings(
         store_faiss_embeddings(chunks, embeddings, faiss_index_path, faiss_meta_path)
 
     else:
-        raise ValueError("[ERROR] Method must be 'base' or 'faiss'")
+        raise ValueError("\n[ERROR] Method must be 'base' or 'faiss'")
     
     return chunks, embeddings

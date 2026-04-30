@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-def log_results(queries):
+def log_results(queries,top_k):
 
     print('\n\n')
     print('=== EVALUATION SUMMARY ===')
@@ -28,8 +28,8 @@ def log_results(queries):
     avg_precision = sum(precision) / len(precision) if precision else 0
     avg_recall = sum(recall) / len(recall) if recall else 0
 
-    print(f'Average Precision@5: {avg_precision}')
-    print(f'Average Recall@5: {avg_recall}')
+    print(f'Average Precision@{top_k}: {avg_precision}')
+    print(f'Average Recall@{top_k}: {avg_recall}')
 
     print("\n" + "-"*80)
 
