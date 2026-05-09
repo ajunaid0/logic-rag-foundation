@@ -1,242 +1,111 @@
-import sys
-import os
 import pandas as pd
-from tabulate import tabulate
-import textwrap
+import src.config.settings as config
+#from src.utils.setup import run_system_setup
+#run_system_setup()
+from src.core.ingestion import ingestion_pipeline
+from src.core.embedding import generate_embeddings
+from src.core.retrieval import retrieve_chunks  
+from src.core.generation import generate_answer
+from src.evaluation.auditor import RAGAuditor
+from src.utils.logger import log_experiment_results
+from src.utils.models import init_all_models
+from src.utils.display import chunk_display
 
-# -----------------------------
-# PATH CONFIGURATION
-# -----------------------------
-BASE_DIR = '/content/drive/MyDrive/GEN AI Roadmap/logic-rag-foundation'
-sys.path.append(os.path.join(BASE_DIR, 'src'))
+def main():
+    # 0. Initialize Models (Reranker, LLMs)
+    # This should return the rerank_model object needed by your retrieve_chunks
 
-# -----------------------------
-# SETUP
-# -----------------------------
-from rag_setup import run_system_setup
-run_system_setup()
+    models = init_all_models(config)
+    rerank_model = models.get('reranker')
 
-from ingest import ingestion_pipeline
-from embed import generate_embeddings
-from generate import generate_answer
-from retrieve import retrieve_chunks
-from retrieval_evaluator import ret_evaluator
-from generator_evaluator import gen_evaluator
-from evaluation_logger import log_results
+    # 1. Ingestion Phase
+    if config.RUN_INGESTION:
+        ingestion_pipeline(config)
+        generate_embeddings(config)
 
-
-# -----------------------------
-# DISPLAY HELPERS
-# -----------------------------
-def format_chunks_for_display(chunks, title=None):
-    if not chunks:
-        print(f"[WARN] No chunks found for {title}")
-        return
-
-    if title:
-        print(f"\n>>> {title}")
-
-    display_data = []
-
-    for idx, c in enumerate(chunks):
-        verdict = c.get('relevance', '-')
-
-        display_data.append({
-            "Chunk": idx + 1,
-            "Source": textwrap.fill(
-                c.get('source') or c.get('metadata', {}).get('source', 'N/A'),
-                width=20
-            ),
-            "Score": round(c.get('score', 0), 4),
-            "Verdict": verdict,
-            "Text": textwrap.fill(c.get('text', 'N/A'), width=150)
+    # 2. Data Loading (Your Excel Pattern)
+    df = pd.read_excel(config.GOLD_TEST_PATH)
+    test_queries = []
+    for _, item in df.iterrows():
+        test_queries.append({
+            'query_type': item['question_type'],
+            'query': item['question'],
+            'answer': item.get('reference_answer', '') 
         })
 
-    df = pd.DataFrame(display_data)
-    print(tabulate(df, headers='keys', tablefmt='fancy_grid', showindex=False))
+    auditor = RAGAuditor(config)
+    final_results = []
 
+    # 3. Execution Phase
+    for item in test_queries:
+        print(f"\nAuditing Query: {item['query']}")
 
-# -----------------------------
-# CORE PIPELINES
-# -----------------------------
-def run_retrieval(query, embedding_model, top_k, method):
-    print(f"[PIPELINE] Retrieval | {method.upper()} | {embedding_model}")
-
-    return retrieve_chunks(
-        embedding_model,
-        query,
-        BASE_DIR,
-        top_n=top_k,
-        method=method
-    )
-
-
-def run_generation(query, chunks, model):
-    print(f"[PIPELINE] Generation | {model}")
-
-    if not chunks:
-        print("[ERROR] No context found.")
-        return None
-
-    return generate_answer(query, chunks, model)
-
-
-# -----------------------------
-# GEN MODE
-# -----------------------------
-def run_gen_mode(query, embedding_model, generation_model, top_k, method):
-    if not query:
-        print("[ERROR] Query required for gen mode")
-        return
-    chunks = run_retrieval(query, embedding_model, top_k, method)
-    format_chunks_for_display(chunks)
-    answer = run_generation(query, chunks, generation_model)
-
-    print("\n" + "-" * 80)
-    print(f"QUERY: {query}")
-    print(f"ANSWER: {textwrap.fill(str(answer), width=100)}")
-    print("-" * 80)
-
-
-# -----------------------------
-# INGEST MODE
-# -----------------------------
-def run_ingest_mode(chunk_size, method):
-    print("\n==============================")
-    print("STARTING DATA INGESTION")
-    print("==============================")
-
-    ingestion_pipeline(base_path=BASE_DIR, chunk_size=chunk_size)
-
-    generate_embeddings(
-        embedding_model_name='mxbai-embed-large:335m',
-        base_path=BASE_DIR,
-        batch_size=100,
-        method=method
-    )
-
-    print("[SUCCESS] Ingestion complete.\n")
-
-
-# -----------------------------
-# EVAL MODE
-# -----------------------------
-def run_eval_mode(queries, embedding_model, evaluation_model, generation_model, judge_model, top_k, method):
-
-    if not queries:
-        print("[ERROR] No queries provided.")
-        return
-
-    print("=== RAG EVALUATION ===")
-    print(f"\n[INFO] Running evaluation on {len(queries)} queries using {evaluation_model}\n")
-    print("=" * 80)
-    for idx, item in enumerate(queries):
-
-        q = item.get('query')
-        a = item.get('answer')
-        qt = item.get('query_type', 'Unknown')
-        
-        print(f"\nQuery: {q}")
-        print(f"Question Type: {qt}")
-
-        print("\n=== RETRIEVAL EVALUATION ===")
-
-        chunks = run_retrieval(q, embedding_model, top_k, method)
-
-        precise_chunks, recall_ans = ret_evaluator(
-            evaluation_model,
-            q,
-            a,
-            chunks,
-            recall_mode=("unanswerable" not in qt.lower())
+        # --- RETRIEVAL ---
+        # Uses your logic: Initial(100) -> Reranker -> Final(5)
+        top_chunks = retrieve_chunks(
+            query=item['query'],
+            config=config,
+            rerank_model=rerank_model
         )
 
-        print("\n--- PRECISION EVALUATION (K={}) ---".format(top_k))
-        format_chunks_for_display(precise_chunks)
+        # --- GENERATION ---
+        model_ans = ""
+        if config.RUN_GENERATION:
+            model_ans = generate_answer(
+                query=item['query'],
+                top_k_chunks=top_chunks,
+                config=config
+            )
 
-        total = sum(1 for c in precise_chunks if c.get('relevance') == 'RELEVANT')
-        precision = total / len(precise_chunks) if precise_chunks else 0
+        # --- AUDIT ---
+        if config.RUN_AUDIT:
+            # Note: We pass top_chunks (the re-ranked final list) to the auditor
+            is_unanswerable = "unanswerable" in item['query_type'].lower()
+            precise_chunks, recall_v = auditor.evaluate_retrieval(
+                item['query'], item['answer'], top_chunks)
+            chunk_display(precise_chunks)
+            relevant_count = sum(1 for c in precise_chunks if c.get('relevance') == 'RELEVANT')   
+            ret_pre= relevant_count / len(precise_chunks) if precise_chunks else 0 
+            print(f'Avg Chunk Presision: {relevant_count}/{len(precise_chunks)} = {ret_pre}')
+            print(f'Retrieval Recall: {recall_v}')
 
-        print(f"\nPrecision@{top_k}: {total}/{len(precise_chunks)} = {precision:.2f}")
+            if model_ans and not is_unanswerable:
+                rouge, report, faith_v = auditor.evaluate_generation(
+                item['query'], item['answer'], model_ans, precise_chunks
+            )
+            elif is_unanswerable:
+                rouge = 0
+                report="CORRECTLY REJECTED"
+                faith_v = 1 if "could not find" in model_ans.lower() else 0
 
-        print("\n--- RECALL EVALUATION ---")
-        print(f"Reference Answer: {a}")
-        print(f"Verdict: {recall_ans}")
-
-        print("\n=== GENERATION EVALUATION ===")
-
-        model_answer = run_generation(q, precise_chunks, generation_model)
-
-        if model_answer and "unanswerable" not in qt.lower():
-            rouge_score,judge_verdict = gen_evaluator(a, model_answer,precise_chunks,judge_model)
-
-            print("\n--- GENERATION OUTPUT ---")
-            print(f"Generated Answer: {model_answer}")
-            print(f"Reference Answer: {a}")
-
-            print("\n--- ROUGE-L SCORE ---")
-            print(f"ROUGE-L F1: {rouge_score}")
+            print(f'Model Answer: {model_ans}')
+            print(f'ROUGE-L Score: {rouge}')
+            print(f'Faithfullness Report: {report}')
+            print(f'Faithfulness Verdict: {faith_v}')
+            context_blocks = []
+            for c_idx, c in enumerate(precise_chunks):
+                block = (f"ID: {c_idx+1} | Similarity Score: {round(c.get('score', 0), 4)} | "
+                f"Re-Ranker Score: {round(c.get('relevance_score', 0), 4)} | "
+                f"Source: {c.get('source', 'N/A')} | Verdict: {c.get('relevance')}\n"
+                f"Content: {c.get('text')}")
+            context_blocks.append(block)
+            item.update({
+                "model_answer": model_ans,
+                "ret_precision": ret_pre,
+                "ret_recall": recall_v,
+                "rouge_score": rouge,
+                "faithfulness_verdict": faith_v,
+                "faithfulness_report": report,
+                "traceable_context": "\n\n" + "="*50 + "\n\n".join(context_blocks)
+            })
         else:
-            rouge_score = "N/A"
-
-            print("\n--- GENERATION OUTPUT ---")
-            print(f"Generated Answer: {model_answer}")
-            print(f"Reference Answer: {a}")
-            print("ROUGE-L: N/A")
-
-            print(f"Groundness Check: \n{judge_verdict}")
-
-        print("-" * 80)
-
-        item['ret_precision'] = precision
-        item['ret_recall'] = 1 if recall_ans == "YES" else 0
-        item['rouge_score'] = rouge_score
-
-    return queries
-# -----------------------------
-# MAIN ROUTER
-# -----------------------------
-def main(query=None, queries=None, mode='gen',
-         top_k=5, chunk_size=800, method='faiss'):
-
-    embedding_model = 'mxbai-embed-large:335m'
-    generation_model = 'llama3:8b-instruct-q4_K_M'
-    evaluation_model = 'gemma3:12b'
-    judge_model=''
-
-    if mode == 'ingest':
-        run_ingest_mode(chunk_size, method)
-
-    elif mode == 'gen':
-        run_gen_mode(query, embedding_model, generation_model, top_k, method)
-
-    elif mode == 'eval':
-        evaluated_queries= run_eval_mode(
-            queries,
-            embedding_model,
-            evaluation_model,
-            generation_model,
-            judge_model,
-            top_k,
-            method
-        )
+            item.update({"model_answer": model_ans})
             
-        log_results(evaluated_queries,top_k)
+        final_results.append(item)
 
-    else:
-        print("[ERROR] Invalid mode")
+    # 4. Final Logging
+    log_experiment_results(final_results, config)
+    print(f"\n[SUCCESS] Experiment iteration {config.ITERATION} complete.")
 
-
-# -----------------------------
-# EXECUTION
-# -----------------------------
 if __name__ == "__main__":
-    user_query = input("\nEnter question: ")
-
-    main(
-        query=user_query,
-        mode="gen",
-        top_k=5,
-        chunk_size=800,
-        method='faiss'
-    )
+    main()
